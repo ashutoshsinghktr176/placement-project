@@ -1,5 +1,6 @@
 from fastapi import FastAPI
-from .placement_model import load_model, get_prediction # Assuming placement_model.py is in the same folder
+from placement_model import load_model, get_prediction
+ # Assuming placement_model.py is in the same folder
 
 # Global variable to hold the loaded model
 # The app will crash if the model fails to load, preventing a bad deploy.
