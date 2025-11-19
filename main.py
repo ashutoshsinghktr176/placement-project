@@ -1,45 +1,85 @@
 from fastapi import FastAPI
-from placement_model import load_model, get_prediction
- # Assuming placement_model.py is in the same folder
+from pydantic import BaseModel
 
-# Global variable to hold the loaded model
-# The app will crash if the model fails to load, preventing a bad deploy.
+from placement_model import load_model, get_prediction
+from resume_utils import extract_skills
+
+
+# ---------- Load model at startup ----------
+
 try:
     trained_model = load_model()
-except FileNotFoundError as e:
-    # This will cause the Render deployment to stop, highlighting the missing file
-    raise RuntimeError("Application failed to start because model.pkl is missing.") from e
+except FileNotFoundError:
+    # This will make the Render deploy fail clearly if model.pkl is missing
+    raise RuntimeError("Application failed to start because model.pkl file was not found.")
+except Exception as e:
+    # Any other error while loading the model
+    raise RuntimeError(f"Application failed to start because the model could not be loaded: {e}")
 
-# Initialize the FastAPI app
-app = FastAPI(
-    title="Resume Analyzer & Placement Predictor",
-    version="1.0.0"
-)
 
-# --- Define Data Schema (Pydantic model) ---
-from pydantic import BaseModel
-class PredictionRequest(BaseModel):
-    cgpa: float
-    iq: float
-    projects: int
+# ---------- FastAPI app ----------
 
-# --- Define Endpoints ---
+app = FastAPI(title="Resume Analyzer & Placement Predictor")
+
+
+# ---------- Request models ----------
+
+class ResumeInput(BaseModel):
+    text: str  # Full resume text
+
+
+class SkillsInput(BaseModel):
+    skills: list[str]  # List of skills like ["python", "aws", "docker"]
+
+
+# ---------- Routes ----------
 
 @app.get("/")
-def read_root():
+def health_check():
+    """Simple health check endpoint."""
     return {"status": "ok", "message": "Placement predictor is running"}
 
-@app.post("/predict")
-def predict_placement(request: PredictionRequest):
-    """
-    Predicts placement based on input features.
-    """
-    result = get_prediction(
-        trained_model, 
-        request.cgpa, 
-        request.iq, 
-        request.projects
-    )
-    return {"placement_status": result}
 
-# ---
+@app.post("/analyze_resume")
+def analyze_resume(resume: ResumeInput):
+    """
+    Analyze a resume:
+    1. Extract skills from the raw text.
+    2. Use the trained model to predict placement category/label.
+    """
+    # 1. Extract skills from resume text
+    skills = extract_skills(resume.text)
+
+    # 2. Get prediction from the loaded model
+    prediction = get_prediction(trained_model, skills)
+
+    return {
+        "status": "ok",
+        "mode": "resume_analyzer",
+        "skills": skills,
+        "prediction": prediction,
+    }
+
+
+@app.post("/predict_from_skills")
+def predict_from_skills(data: SkillsInput):
+    """
+    Predict placement category directly from a list of skills.
+    Useful if the user already knows their skills.
+    """
+    prediction = get_prediction(trained_model, data.skills)
+
+    return {
+        "status": "ok",
+        "mode": "skills_only",
+        "skills": data.skills,
+        "prediction": prediction,
+    }
+
+
+# ---------- Local run (optional, not used by Render) ----------
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
