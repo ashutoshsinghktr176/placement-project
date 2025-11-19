@@ -6,3 +6,4 @@ pandas
 scikit-learn
 pdfplumber
 docx2txt
+pdfplumber
